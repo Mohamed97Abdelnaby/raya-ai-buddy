@@ -2,12 +2,12 @@ import rayaLogo from "@/assets/raya-logo.png";
 
 const ChatHeader = () => {
   return (
-    <header className="flex items-center justify-between px-6 py-4 border-b border-border bg-card shadow-card">
+    <header className="flex items-center justify-between px-6 py-4 border-b border-border bg-transparent">
       <div className="flex items-center gap-3">
         <img 
           src={rayaLogo} 
           alt="Raya Information Technology" 
-          className="h-10 w-auto object-contain"
+          className="h-14 w-auto object-contain"
         />
       </div>
       <div className="flex items-center gap-2">
