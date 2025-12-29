@@ -1,5 +1,6 @@
 import { Bot, User, FileText } from "lucide-react";
 import { cn } from "@/lib/utils";
+import FeedbackButtons from "./FeedbackButtons";
 
 export interface Source {
   file: string;
@@ -97,6 +98,15 @@ const MessageBubble = ({ message }: MessageBubbleProps) => {
             minute: "2-digit",
           })}
         </p>
+        
+        {/* Feedback buttons for assistant messages */}
+        {!isUser && (
+          <FeedbackButtons
+            messageId={message.id}
+            messageContent={message.content}
+            sources={message.sources?.map(s => s.file)}
+          />
+        )}
       </div>
     </div>
   );
