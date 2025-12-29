@@ -17,9 +17,10 @@ export interface Message {
 
 interface MessageBubbleProps {
   message: Message;
+  prompt?: string;
 }
 
-const MessageBubble = ({ message }: MessageBubbleProps) => {
+const MessageBubble = ({ message, prompt }: MessageBubbleProps) => {
   const isUser = message.role === "user";
   const hasSources = !isUser && message.sources && message.sources.length > 0;
 
@@ -104,6 +105,7 @@ const MessageBubble = ({ message }: MessageBubbleProps) => {
           <FeedbackButtons
             messageId={message.id}
             messageContent={message.content}
+            prompt={prompt}
             sources={message.sources?.map(s => s.file)}
           />
         )}
