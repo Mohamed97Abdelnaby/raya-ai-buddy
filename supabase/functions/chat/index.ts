@@ -9,15 +9,16 @@ const corsHeaders = {
 const CHROMA_API_KEY = Deno.env.get('CHROMA_API_KEY');
 const OPENAI_API_KEY = Deno.env.get('OPENAI_API_KEY');
 
-// Chroma Cloud configuration
+// Chroma Cloud configuration (matching your Python setup)
 const CHROMA_TENANT = 'b2e97de6-2527-4abe-b487-f3ffb1ebe412';
 const CHROMA_DATABASE = 'RagAgent';
 const CHROMA_COLLECTION = 'customer-support-messages';
 
-// Query Chroma Cloud for relevant documents
+// Query Chroma Cloud for relevant documents using REST API
 async function queryChroma(userQuestion: string, topK: number = 3): Promise<{ documents: string[], metadatas: any[] }> {
-  console.log('Querying Chroma Cloud...');
+  console.log('Querying Chroma Cloud via REST API...');
   
+  // Chroma Cloud v2 API endpoint
   const chromaUrl = `https://api.trychroma.com/api/v2/tenants/${CHROMA_TENANT}/databases/${CHROMA_DATABASE}/collections/${CHROMA_COLLECTION}/query`;
   console.log('Chroma URL:', chromaUrl);
   
@@ -37,7 +38,7 @@ async function queryChroma(userQuestion: string, topK: number = 3): Promise<{ do
   if (!response.ok) {
     const errorText = await response.text();
     console.error('Chroma query failed:', response.status, errorText);
-    throw new Error(`Chroma query failed: ${response.status}`);
+    throw new Error(`Chroma query failed: ${response.status} - ${errorText}`);
   }
 
   const results = await response.json();
