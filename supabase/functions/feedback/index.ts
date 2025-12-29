@@ -35,12 +35,69 @@ serve(async (req) => {
     const feedback: FeedbackPayload = await req.json();
     console.log('Received feedback:', JSON.stringify(feedback));
 
-    // WandB configuration with correct entity and project
-    const entity = 'ahmed_wael-raya-it-org';
+    // WandB configuration - using wandb.init equivalent
+    const entity = 'ahmed_wael-raya-it';
     const project = 'Raya Chatbot';
-    const runId = 'feedback-production';
+    
+    // Generate a unique run ID for each feedback session or use a consistent one
+    const runName = `feedback-${Date.now()}`;
 
-    // Build the logging payload matching the required format
+    // Step 1: Create a new run using the correct GraphQL mutation
+    // WandB uses 'modelName' for project, not 'projectName'
+    const createRunResponse = await fetch('https://api.wandb.ai/graphql', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Basic ${btoa(`api:${WANDB_API_KEY}`)}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        query: `
+          mutation UpsertBucket(
+            $name: String,
+            $project: String,
+            $entity: String,
+            $displayName: String,
+            $config: JSONString
+          ) {
+            upsertBucket(input: {
+              name: $name,
+              modelName: $project,
+              entityName: $entity,
+              displayName: $displayName,
+              config: $config
+            }) {
+              bucket {
+                id
+                name
+                displayName
+              }
+              inserted
+            }
+          }
+        `,
+        variables: {
+          entity: entity,
+          project: project,
+          name: runName,
+          displayName: `Feedback ${feedback.rating}`,
+          config: JSON.stringify({
+            prompt: feedback.prompt || '',
+            model: feedback.model || 'gpt-4.1-mini',
+            rating: feedback.rating
+          })
+        }
+      }),
+    });
+
+    const createRunResult = await createRunResponse.json();
+    console.log('Create run result:', JSON.stringify(createRunResult));
+
+    if (createRunResult.errors) {
+      console.error('GraphQL errors:', JSON.stringify(createRunResult.errors));
+      // Try alternative approach - log to summary
+    }
+
+    // Step 2: Log the feedback data
     const wandbPayload = {
       history: [{
         'prompt': feedback.prompt || '',
@@ -59,9 +116,8 @@ serve(async (req) => {
 
     console.log('Sending to WandB:', JSON.stringify(wandbPayload));
 
-    // Use WandB's run API to log metrics
     const wandbResponse = await fetch(
-      `https://api.wandb.ai/files/${entity}/${project}/${runId}/file_stream`,
+      `https://api.wandb.ai/files/${entity}/${encodeURIComponent(project)}/${runName}/file_stream`,
       {
         method: 'POST',
         headers: {
@@ -74,65 +130,7 @@ serve(async (req) => {
 
     if (!wandbResponse.ok) {
       const errorText = await wandbResponse.text();
-      console.error('WandB API error:', wandbResponse.status, errorText);
-      
-      // If the run doesn't exist, try creating it first
-      if (wandbResponse.status === 404) {
-        console.log('Run not found, attempting to create...');
-        
-        // Create a new run using the correct mutation
-        const createRunResponse = await fetch(
-          `https://api.wandb.ai/graphql`,
-          {
-            method: 'POST',
-            headers: {
-              'Authorization': `Basic ${btoa(`api:${WANDB_API_KEY}`)}`,
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              query: `
-                mutation UpsertBucket($entity: String!, $project: String!, $name: String!) {
-                  upsertBucket(input: {entityName: $entity, name: $name, projectName: $project}) {
-                    bucket {
-                      id
-                      name
-                    }
-                  }
-                }
-              `,
-              variables: {
-                entity,
-                project,
-                name: runId
-              }
-            }),
-          }
-        );
-
-        const createResult = await createRunResponse.text();
-        console.log('Create run result:', createResult);
-
-        // Retry logging
-        const retryResponse = await fetch(
-          `https://api.wandb.ai/files/${entity}/${project}/${runId}/file_stream`,
-          {
-            method: 'POST',
-            headers: {
-              'Authorization': `Basic ${btoa(`api:${WANDB_API_KEY}`)}`,
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify(wandbPayload),
-          }
-        );
-
-        if (!retryResponse.ok) {
-          const retryError = await retryResponse.text();
-          console.error('WandB retry error:', retryError);
-          // Continue anyway - feedback was recorded in logs
-        } else {
-          console.log('Successfully logged to WandB on retry');
-        }
-      }
+      console.error('WandB file_stream error:', wandbResponse.status, errorText);
     } else {
       console.log('Successfully logged feedback to WandB');
     }
