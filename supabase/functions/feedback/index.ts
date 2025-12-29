@@ -57,6 +57,7 @@ serve(async (req) => {
             $project: String,
             $entity: String,
             $displayName: String,
+            $notes: String,
             $config: JSONString
           ) {
             upsertBucket(input: {
@@ -64,6 +65,7 @@ serve(async (req) => {
               modelName: $project,
               entityName: $entity,
               displayName: $displayName,
+              notes: $notes,
               config: $config
             }) {
               bucket {
@@ -80,6 +82,7 @@ serve(async (req) => {
           project: project,
           name: runName,
           displayName: `Feedback ${feedback.rating}`,
+          notes: feedback.comment || '',
           config: JSON.stringify({
             prompt: feedback.prompt || '',
             model: feedback.model || 'gpt-4.1-mini',

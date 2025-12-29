@@ -15,16 +15,25 @@ interface FeedbackButtonsProps {
 const FeedbackButtons = ({ messageId, messageContent, prompt, sources }: FeedbackButtonsProps) => {
   const [selectedRating, setSelectedRating] = useState<'positive' | 'negative' | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [pendingRating, setPendingRating] = useState<'positive' | 'negative' | null>(null);
   const { toast } = useToast();
 
-  const handlePositiveFeedback = async () => {
+  const handleFeedbackClick = (rating: 'positive' | 'negative') => {
     if (selectedRating) return;
+    setPendingRating(rating);
+    setIsModalOpen(true);
+  };
+
+  const handleModalSubmit = async (comment: string) => {
+    if (!pendingRating) return;
     
-    setSelectedRating('positive');
-    
+    setSelectedRating(pendingRating);
+    setIsModalOpen(false);
+
     await handleFeedback({
       messageId,
-      rating: 'positive',
+      rating: pendingRating,
+      comment: comment || undefined,
       timestamp: new Date(),
       messageContent,
       prompt,
@@ -38,41 +47,20 @@ const FeedbackButtons = ({ messageId, messageContent, prompt, sources }: Feedbac
       description: "Your feedback helps us improve.",
       duration: 2000,
     });
+    
+    setPendingRating(null);
   };
 
-  const handleNegativeFeedback = () => {
-    if (selectedRating) return;
-    setIsModalOpen(true);
-  };
-
-  const handleNegativeSubmit = async (comment: string) => {
-    setSelectedRating('negative');
+  const handleModalClose = () => {
     setIsModalOpen(false);
-
-    await handleFeedback({
-      messageId,
-      rating: 'negative',
-      comment,
-      timestamp: new Date(),
-      messageContent,
-      prompt,
-      model: 'gpt-4.1-mini',
-      sessionId: messageId.split('-')[0],
-      sources,
-    });
-
-    toast({
-      title: "Feedback received",
-      description: "Thank you for helping us improve.",
-      duration: 2000,
-    });
+    setPendingRating(null);
   };
 
   return (
     <>
       <div className="flex items-center gap-1 mt-2">
         <button
-          onClick={handlePositiveFeedback}
+          onClick={() => handleFeedbackClick('positive')}
           disabled={selectedRating !== null}
           className={cn(
             "p-1.5 rounded-md transition-all duration-200",
@@ -92,7 +80,7 @@ const FeedbackButtons = ({ messageId, messageContent, prompt, sources }: Feedbac
           />
         </button>
         <button
-          onClick={handleNegativeFeedback}
+          onClick={() => handleFeedbackClick('negative')}
           disabled={selectedRating !== null}
           className={cn(
             "p-1.5 rounded-md transition-all duration-200",
@@ -115,8 +103,9 @@ const FeedbackButtons = ({ messageId, messageContent, prompt, sources }: Feedbac
 
       <FeedbackModal
         isOpen={isModalOpen}
-        onClose={() => setIsModalOpen(false)}
-        onSubmit={handleNegativeSubmit}
+        onClose={handleModalClose}
+        onSubmit={handleModalSubmit}
+        rating={pendingRating}
       />
     </>
   );
