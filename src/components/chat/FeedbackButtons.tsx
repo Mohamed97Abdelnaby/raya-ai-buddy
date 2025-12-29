@@ -8,10 +8,11 @@ import FeedbackModal from "./FeedbackModal";
 interface FeedbackButtonsProps {
   messageId: string;
   messageContent: string;
+  prompt?: string;
   sources?: string[];
 }
 
-const FeedbackButtons = ({ messageId, messageContent, sources }: FeedbackButtonsProps) => {
+const FeedbackButtons = ({ messageId, messageContent, prompt, sources }: FeedbackButtonsProps) => {
   const [selectedRating, setSelectedRating] = useState<'positive' | 'negative' | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const { toast } = useToast();
@@ -26,6 +27,9 @@ const FeedbackButtons = ({ messageId, messageContent, sources }: FeedbackButtons
       rating: 'positive',
       timestamp: new Date(),
       messageContent,
+      prompt,
+      model: 'gpt-4.1-mini',
+      sessionId: messageId.split('-')[0],
       sources,
     });
 
@@ -51,6 +55,9 @@ const FeedbackButtons = ({ messageId, messageContent, sources }: FeedbackButtons
       comment,
       timestamp: new Date(),
       messageContent,
+      prompt,
+      model: 'gpt-4.1-mini',
+      sessionId: messageId.split('-')[0],
       sources,
     });
 

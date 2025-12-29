@@ -25,6 +25,16 @@ const ChatContainer = ({ messages, isLoading, onSendMessage }: ChatContainerProp
 
   const hasMessages = messages.length > 0;
 
+  // Find the previous user message for each assistant message
+  const getPreviousUserMessage = (index: number): string | undefined => {
+    for (let i = index - 1; i >= 0; i--) {
+      if (messages[i].role === 'user') {
+        return messages[i].content;
+      }
+    }
+    return undefined;
+  };
+
   return (
     <div className="flex flex-col h-screen bg-background">
       <ChatHeader />
@@ -41,8 +51,12 @@ const ChatContainer = ({ messages, isLoading, onSendMessage }: ChatContainerProp
 
           {hasMessages && (
             <div className="space-y-6">
-              {messages.map((message) => (
-                <MessageBubble key={message.id} message={message} />
+              {messages.map((message, index) => (
+                <MessageBubble 
+                  key={message.id} 
+                  message={message}
+                  prompt={message.role === 'assistant' ? getPreviousUserMessage(index) : undefined}
+                />
               ))}
               {isLoading && <TypingIndicator />}
             </div>

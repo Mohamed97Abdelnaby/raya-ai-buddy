@@ -10,7 +10,11 @@ interface FeedbackPayload {
   rating: 'positive' | 'negative';
   comment?: string;
   timestamp: string;
+  prompt?: string;
+  response?: string;
   messageContent?: string;
+  model?: string;
+  sessionId?: string;
   sources?: string[];
 }
 
@@ -31,22 +35,24 @@ serve(async (req) => {
     const feedback: FeedbackPayload = await req.json();
     console.log('Received feedback:', JSON.stringify(feedback));
 
-    // WandB configuration - using default entity and project
-    const entity = 'default';
-    const project = 'raya-feedback';
-    const runId = 'raya-feedback-production';
+    // WandB configuration with correct entity and project
+    const entity = 'ahmed_wael';
+    const project = 'Raya Chatbot';
+    const runId = 'feedback-production';
 
-    // Log to WandB using their API
-    // First, we need to ensure the run exists or create it
+    // Build the logging payload matching the required format
     const wandbPayload = {
       history: [{
-        'feedback/rating': feedback.rating === 'positive' ? 1 : 0,
-        'feedback/rating_label': feedback.rating,
-        'feedback/comment': feedback.comment || '',
-        'feedback/message_id': feedback.messageId,
-        'feedback/message_content': feedback.messageContent || '',
-        'feedback/sources': JSON.stringify(feedback.sources || []),
-        'feedback/timestamp': feedback.timestamp,
+        'prompt': feedback.prompt || '',
+        'response': feedback.response || feedback.messageContent || '',
+        'rating': feedback.rating === 'positive' ? 1 : 0,
+        'rating_label': feedback.rating,
+        'comment': feedback.comment || '',
+        'model': feedback.model || 'gpt-4.1-mini',
+        'session_id': feedback.sessionId || feedback.messageId,
+        'message_id': feedback.messageId,
+        'sources': JSON.stringify(feedback.sources || []),
+        'timestamp': feedback.timestamp,
         '_timestamp': Date.now() / 1000
       }]
     };
@@ -74,7 +80,7 @@ serve(async (req) => {
       if (wandbResponse.status === 404) {
         console.log('Run not found, attempting to create...');
         
-        // Create a new run
+        // Create a new run using the correct mutation
         const createRunResponse = await fetch(
           `https://api.wandb.ai/graphql`,
           {
@@ -86,7 +92,7 @@ serve(async (req) => {
             body: JSON.stringify({
               query: `
                 mutation UpsertBucket($entity: String!, $project: String!, $name: String!) {
-                  upsertBucket(input: {entityName: $entity, projectName: $project, name: $name}) {
+                  upsertBucket(input: {entityName: $entity, name: $name, projectName: $project}) {
                     bucket {
                       id
                       name

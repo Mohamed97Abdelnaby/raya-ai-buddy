@@ -6,6 +6,9 @@ export interface FeedbackData {
   comment?: string;
   timestamp: Date;
   messageContent?: string;
+  prompt?: string;
+  model?: string;
+  sessionId?: string;
   sources?: string[];
 }
 
@@ -20,6 +23,7 @@ export const handleFeedback = async (feedback: FeedbackData): Promise<void> => {
     body: {
       ...feedback,
       timestamp: feedback.timestamp.toISOString(),
+      response: feedback.messageContent, // Map messageContent to response for WandB
     }
   });
 
