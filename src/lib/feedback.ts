@@ -1,3 +1,5 @@
+import { supabase } from "@/integrations/supabase/client";
+
 export interface FeedbackData {
   messageId: string;
   rating: 'positive' | 'negative';
@@ -8,18 +10,23 @@ export interface FeedbackData {
 }
 
 /**
- * Stub function for handling user feedback
- * Ready for Weights & Biases (WandB) integration
+ * Handles user feedback by sending it to the backend edge function
+ * which logs it to Weights & Biases (WandB)
  */
 export const handleFeedback = async (feedback: FeedbackData): Promise<void> => {
-  console.log('Feedback submitted:', feedback);
+  console.log('Submitting feedback to WandB:', feedback);
   
-  // TODO: Connect to Weights & Biases
-  // Example structure for WandB logging:
-  // await wandb.log({
-  //   "feedback/rating": feedback.rating,
-  //   "feedback/comment": feedback.comment,
-  //   "feedback/message_id": feedback.messageId,
-  //   "feedback/timestamp": feedback.timestamp.toISOString(),
-  // });
+  const { data, error } = await supabase.functions.invoke('feedback', {
+    body: {
+      ...feedback,
+      timestamp: feedback.timestamp.toISOString(),
+    }
+  });
+
+  if (error) {
+    console.error('Failed to submit feedback:', error);
+    throw error;
+  }
+
+  console.log('Feedback submitted successfully:', data);
 };
