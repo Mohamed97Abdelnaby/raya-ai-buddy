@@ -23,7 +23,7 @@ export const useChat = () => {
       const { data, error } = await supabase.functions.invoke('chat', {
         body: { 
           message: content,
-          topK: 3,
+          topK: 5,
           model: "gpt-3.5-turbo",
           temperature: 0.2,
           maxTokens: 500
@@ -39,6 +39,7 @@ export const useChat = () => {
         role: "assistant",
         content: data.response || "I apologize, but I couldn't generate a response. Please try again.",
         timestamp: new Date(),
+        sources: data.sources || [],
       };
 
       setMessages((prev) => [...prev, assistantMessage]);

@@ -6,77 +6,113 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-const CHROMA_URL = Deno.env.get('CHROMA_URL');
-const CHROMA_API_KEY = Deno.env.get('CHROMA_API_KEY');
+const PINECONE_URL = Deno.env.get('PINECONE_URL');
+const PINECONE_API_KEY = Deno.env.get('PINECONE_API_KEY');
 const OPENAI_API_KEY = Deno.env.get('OPENAI_API_KEY');
 
-// Query Chroma Cloud for relevant documents
-async function queryChroma(userQuestion: string, topK: number = 3): Promise<{ documents: string[], metadatas: any[] }> {
-  console.log('Querying Chroma Cloud...');
+interface PineconeResult {
+  _id: string;
+  _score: number;
+  fields?: {
+    category?: string;
+    chunk_text?: string;
+    source_file?: string;
+    text?: string;
+  };
+}
+
+interface Source {
+  file: string;
+  category?: string;
+}
+
+// Query Pinecone for relevant documents
+async function queryPinecone(userQuestion: string, topK: number = 5): Promise<{ documents: string[], sources: Source[] }> {
+  console.log('Querying Pinecone...', { userQuestion, topK });
   
-  const response = await fetch(`${CHROMA_URL}/api/v1/collections/customer-support-messages/query`, {
+  const response = await fetch(`${PINECONE_URL}/records/namespaces/example-namespace/search`, {
     method: 'POST',
     headers: {
+      'Accept': 'application/json',
       'Content-Type': 'application/json',
-      'Authorization': `Bearer ${CHROMA_API_KEY}`,
+      'Api-Key': PINECONE_API_KEY!,
+      'X-Pinecone-Api-Version': 'unstable',
     },
     body: JSON.stringify({
-      query_texts: [userQuestion],
-      n_results: topK,
-      include: ['documents', 'metadatas']
+      query: {
+        inputs: { text: userQuestion },
+        top_k: topK
+      },
+      fields: ["category", "chunk_text", "source_file", "text"]
     }),
   });
 
   if (!response.ok) {
     const errorText = await response.text();
-    console.error('Chroma query failed:', response.status, errorText);
-    throw new Error(`Chroma query failed: ${response.status}`);
+    console.error('Pinecone query failed:', response.status, errorText);
+    throw new Error(`Pinecone query failed: ${response.status}`);
   }
 
   const results = await response.json();
-  console.log('Chroma results:', JSON.stringify(results));
+  console.log('Pinecone raw results:', JSON.stringify(results));
   
-  return {
-    documents: results.documents?.[0] || [],
-    metadatas: results.metadatas?.[0] || []
-  };
+  const documents: string[] = [];
+  const sources: Source[] = [];
+  const seenSources = new Set<string>();
+
+  // Extract documents and sources from Pinecone results
+  const hits = results.result?.hits || results.hits || [];
+  
+  for (const hit of hits as PineconeResult[]) {
+    const fields = hit.fields || {};
+    const content = fields.chunk_text || fields.text || '';
+    const sourceFile = fields.source_file || 'Unknown source';
+    const category = fields.category;
+
+    if (content) {
+      documents.push(content);
+      console.log(`Document from ${sourceFile}: ${content.substring(0, 100)}...`);
+    }
+
+    // Add unique sources
+    if (!seenSources.has(sourceFile)) {
+      seenSources.add(sourceFile);
+      sources.push({ file: sourceFile, category });
+    }
+  }
+
+  console.log(`Retrieved ${documents.length} documents from ${sources.length} unique sources`);
+  
+  return { documents, sources };
 }
 
 // RAG Query function
 async function ragQuery(
   userQuestion: string, 
-  topK: number = 3, 
+  topK: number = 5, 
   model: string = "gpt-3.5-turbo",
   temperature: number = 0.2,
   maxTokens: number = 500
-): Promise<string> {
+): Promise<{ answer: string; sources: Source[] }> {
   
   let context = "";
-  let retrievedDocs: string[] = [];
-  let retrievedMetadata: any[] = [];
+  let sources: Source[] = [];
 
-  // Try to get context from Chroma
+  // Try to get context from Pinecone
   try {
-    const chromaResults = await queryChroma(userQuestion, topK);
-    retrievedDocs = chromaResults.documents;
-    retrievedMetadata = chromaResults.metadatas;
+    const pineconeResults = await queryPinecone(userQuestion, topK);
+    context = pineconeResults.documents.join("\n\n");
+    sources = pineconeResults.sources;
     
-    console.log('Retrieved documents:');
-    for (let i = 0; i < retrievedDocs.length; i++) {
-      const doc = retrievedDocs[i];
-      const meta = retrievedMetadata[i];
-      console.log(`File: ${meta?.file || 'Unknown'}`);
-      console.log(`Content: ${doc}\n`);
-    }
-    
-    context = retrievedDocs.join("\n");
+    console.log('Context length:', context.length);
+    console.log('Sources:', JSON.stringify(sources));
   } catch (error) {
-    console.error('Error querying Chroma, continuing without context:', error);
+    console.error('Error querying Pinecone, continuing without context:', error);
   }
 
   // Build prompt with context if available
   const prompt = context 
-    ? `Use the following context to answer the question:\n${context}\n\nQuestion: ${userQuestion}`
+    ? `Use the following context to answer the question. Be specific and cite information from the context when possible:\n\n${context}\n\nQuestion: ${userQuestion}`
     : userQuestion;
 
   // Call OpenAI
@@ -109,7 +145,10 @@ async function ragQuery(
   const data = await openaiResponse.json();
   const answer = data.choices[0].message.content;
   
-  return answer;
+  console.log('Generated answer:', answer);
+  console.log('Returning sources:', JSON.stringify(sources));
+  
+  return { answer, sources };
 }
 
 serve(async (req) => {
@@ -119,7 +158,7 @@ serve(async (req) => {
   }
 
   try {
-    const { message, topK = 3, model = "gpt-3.5-turbo", temperature = 0.2, maxTokens = 500 } = await req.json();
+    const { message, topK = 5, model = "gpt-3.5-turbo", temperature = 0.2, maxTokens = 500 } = await req.json();
 
     if (!message) {
       return new Response(
@@ -136,14 +175,20 @@ serve(async (req) => {
       );
     }
 
+    if (!PINECONE_URL || !PINECONE_API_KEY) {
+      console.error('Pinecone configuration missing');
+      return new Response(
+        JSON.stringify({ error: 'Pinecone not configured' }),
+        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
     console.log('Processing message:', message);
     
-    const answer = await ragQuery(message, topK, model, temperature, maxTokens);
-    
-    console.log('Generated answer:', answer);
+    const { answer, sources } = await ragQuery(message, topK, model, temperature, maxTokens);
 
     return new Response(
-      JSON.stringify({ response: answer }),
+      JSON.stringify({ response: answer, sources }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
 

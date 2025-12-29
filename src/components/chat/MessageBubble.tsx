@@ -1,11 +1,17 @@
-import { Bot, User } from "lucide-react";
+import { Bot, User, FileText } from "lucide-react";
 import { cn } from "@/lib/utils";
+
+export interface Source {
+  file: string;
+  category?: string;
+}
 
 export interface Message {
   id: string;
   role: "user" | "assistant";
   content: string;
   timestamp: Date;
+  sources?: Source[];
 }
 
 interface MessageBubbleProps {
@@ -14,6 +20,7 @@ interface MessageBubbleProps {
 
 const MessageBubble = ({ message }: MessageBubbleProps) => {
   const isUser = message.role === "user";
+  const hasSources = !isUser && message.sources && message.sources.length > 0;
 
   return (
     <div
@@ -50,6 +57,35 @@ const MessageBubble = ({ message }: MessageBubbleProps) => {
         <p className="text-sm leading-relaxed whitespace-pre-wrap">
           {message.content}
         </p>
+        
+        {/* Sources Section */}
+        {hasSources && (
+          <div className="mt-3 pt-3 border-t border-border/50">
+            <div className="flex items-center gap-1.5 text-xs text-muted-foreground mb-2">
+              <FileText className="w-3 h-3" />
+              <span className="font-medium">Sources:</span>
+            </div>
+            <ul className="space-y-1">
+              {message.sources!.map((source, index) => (
+                <li 
+                  key={index}
+                  className="text-xs text-muted-foreground flex items-start gap-1.5"
+                >
+                  <span className="text-primary mt-0.5">•</span>
+                  <span className="break-all">
+                    {source.file}
+                    {source.category && (
+                      <span className="ml-1.5 px-1.5 py-0.5 bg-muted rounded text-[10px]">
+                        {source.category}
+                      </span>
+                    )}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+        
         <p
           className={cn(
             "text-xs mt-2",
