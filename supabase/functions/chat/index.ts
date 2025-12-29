@@ -30,7 +30,7 @@ interface Source {
 async function queryPinecone(userQuestion: string, topK: number = 5): Promise<{ documents: string[], sources: Source[] }> {
   console.log('Querying Pinecone...', { userQuestion, topK });
   
-  const response = await fetch(`${PINECONE_URL}/records/namespaces/example-namespace/search`, {
+  const response = await fetch('https://developer-quickstart-py-pcmqk4n.svc.aped-4627-b74a.pinecone.io/records/namespaces/example-namespace/search', {
     method: 'POST',
     headers: {
       'Accept': 'application/json',
