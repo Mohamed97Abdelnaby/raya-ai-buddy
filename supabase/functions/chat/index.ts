@@ -6,15 +6,22 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-const CHROMA_URL = Deno.env.get('CHROMA_URL');
 const CHROMA_API_KEY = Deno.env.get('CHROMA_API_KEY');
 const OPENAI_API_KEY = Deno.env.get('OPENAI_API_KEY');
+
+// Chroma Cloud configuration
+const CHROMA_TENANT = 'b2e97de6-2527-4abe-b487-f3ffb1ebe412';
+const CHROMA_DATABASE = 'RagAgent';
+const CHROMA_COLLECTION = 'customer-support-messages';
 
 // Query Chroma Cloud for relevant documents
 async function queryChroma(userQuestion: string, topK: number = 3): Promise<{ documents: string[], metadatas: any[] }> {
   console.log('Querying Chroma Cloud...');
   
-  const response = await fetch(`${CHROMA_URL}/api/v1/collections/customer-support-messages/query`, {
+  const chromaUrl = `https://api.trychroma.com/api/v2/tenants/${CHROMA_TENANT}/databases/${CHROMA_DATABASE}/collections/${CHROMA_COLLECTION}/query`;
+  console.log('Chroma URL:', chromaUrl);
+  
+  const response = await fetch(chromaUrl, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
