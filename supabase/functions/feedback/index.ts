@@ -36,7 +36,7 @@ serve(async (req) => {
     console.log('Received feedback:', JSON.stringify(feedback));
 
     // WandB configuration with correct entity and project
-    const entity = 'ahmed_wael';
+    const entity = 'ahmed_wael-raya-it-org';
     const project = 'Raya Chatbot';
     const runId = 'feedback-production';
 
