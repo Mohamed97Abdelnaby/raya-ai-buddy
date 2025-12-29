@@ -14,9 +14,10 @@ interface FeedbackModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSubmit: (comment: string) => void;
+  rating?: 'positive' | 'negative' | null;
 }
 
-const FeedbackModal = ({ isOpen, onClose, onSubmit }: FeedbackModalProps) => {
+const FeedbackModal = ({ isOpen, onClose, onSubmit, rating }: FeedbackModalProps) => {
   const [comment, setComment] = useState("");
 
   const handleSubmit = () => {
@@ -29,32 +30,37 @@ const FeedbackModal = ({ isOpen, onClose, onSubmit }: FeedbackModalProps) => {
     onClose();
   };
 
+  const isPositive = rating === 'positive';
+
   return (
     <Dialog open={isOpen} onOpenChange={handleClose}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>Help us improve</DialogTitle>
+          <DialogTitle>{isPositive ? "Thanks for the feedback!" : "Help us improve"}</DialogTitle>
           <DialogDescription>
-            What was wrong with this response? Your feedback helps us provide better answers.
+            {isPositive 
+              ? "Want to add a note about what you liked? (Optional)"
+              : "What could be improved? Your feedback helps us provide better answers. (Optional)"
+            }
           </DialogDescription>
         </DialogHeader>
         
         <Textarea
           value={comment}
           onChange={(e) => setComment(e.target.value)}
-          placeholder="Please describe what could be improved..."
+          placeholder={isPositive ? "What did you like about this response?" : "Please describe what could be improved..."}
           className="min-h-[100px] resize-none"
         />
         
         <DialogFooter className="gap-2 sm:gap-0">
-          <Button variant="outline" onClick={handleClose}>
-            Cancel
+          <Button variant="outline" onClick={handleSubmit}>
+            Skip
           </Button>
           <Button 
             onClick={handleSubmit}
             className="gradient-chat text-primary-foreground"
           >
-            Submit Feedback
+            Submit
           </Button>
         </DialogFooter>
       </DialogContent>
