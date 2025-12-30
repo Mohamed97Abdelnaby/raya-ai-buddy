@@ -98,19 +98,20 @@ async function queryPinecone(
   console.log("Query embedded, vector length:", queryEmbedding.length);
 
   const response = await fetch(
-    "https://rag-pcmqk4n.svc.aped-4627-b74a.pinecone.io/records/namespaces/example-namespace/search",
+    "https://rag-pcmqk4n.svc.aped-4627-b74a.pinecone.io/query",
     {
       method: "POST",
       headers: {
-        Accept: "application/json",
         "Content-Type": "application/json",
         "Api-Key": PINECONE_API_KEY!,
-        "X-Pinecone-Api-Version": "unstable",
+        "X-Pinecone-Api-Version": "2025-10",
       },
       body: JSON.stringify({
         vector: queryEmbedding,
-        top_k: topK,
-        include_metadata: true,
+        namespace: "example-namespace",
+        topK: topK,
+        includeMetadata: true,
+        includeValues: false,
       }),
     },
   );
