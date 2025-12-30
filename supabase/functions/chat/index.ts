@@ -10,6 +10,9 @@ const PINECONE_URL = Deno.env.get('PINECONE_URL');
 const PINECONE_API_KEY = Deno.env.get('PINECONE_API_KEY');
 const OPENAI_API_KEY = Deno.env.get('OPENAI_API_KEY');
 
+// Relevance threshold - results below this score are ignored
+const RELEVANCE_THRESHOLD = 0.7;
+
 interface PineconeResult {
   _id: string;
   _score: number;
@@ -64,6 +67,14 @@ async function queryPinecone(userQuestion: string, topK: number = 5): Promise<{ 
   const hits = results.result?.hits || results.hits || [];
   
   for (const hit of hits as PineconeResult[]) {
+    // Skip results below relevance threshold
+    if (hit._score < RELEVANCE_THRESHOLD) {
+      console.log(`Skipping low-relevance result: score=${hit._score.toFixed(3)} (threshold=${RELEVANCE_THRESHOLD})`);
+      continue;
+    }
+
+    console.log(`Including result: score=${hit._score.toFixed(3)}`);
+
     const fields = hit.fields || {};
     const content = fields.chunk_text || fields.text || '';
     const sourceFile = fields.source_file || 'Unknown source';
@@ -81,7 +92,7 @@ async function queryPinecone(userQuestion: string, topK: number = 5): Promise<{ 
     }
   }
 
-  console.log(`Retrieved ${documents.length} documents from ${sources.length} unique sources`);
+  console.log(`Retrieved ${documents.length} relevant documents above threshold (from ${hits.length} total hits)`);
   
   return { documents, sources };
 }
@@ -101,19 +112,28 @@ async function ragQuery(
   // Try to get context from Pinecone
   try {
     const pineconeResults = await queryPinecone(userQuestion, topK);
+    
+    // If no relevant documents found above threshold, return fallback without calling OpenAI
+    if (pineconeResults.documents.length === 0) {
+      console.log('No relevant documents found above threshold - skipping OpenAI call');
+      return { 
+        answer: "I apologize, but I don't have enough information in my knowledge base to answer this question accurately.",
+        sources: [] 
+      };
+    }
+    
     context = pineconeResults.documents.join("\n\n");
     sources = pineconeResults.sources;
     
     console.log('Context length:', context.length);
     console.log('Sources:', JSON.stringify(sources));
   } catch (error) {
-    console.error('Error querying Pinecone, continuing without context:', error);
+    console.error('Error querying Pinecone:', error);
+    throw error; // Re-throw to prevent proceeding without valid context
   }
 
-  // Build prompt with context if available
-  const prompt = context 
-    ? `Use the following context to answer the question. Be specific and cite information from the context when possible:\n\n${context}\n\nQuestion: ${userQuestion}`
-    : userQuestion;
+  // Build prompt with context
+  const prompt = `Use the following context to answer the question. Be specific and cite information from the context when possible:\n\n${context}\n\nQuestion: ${userQuestion}`;
 
   // Call OpenAI
   const openaiResponse = await fetch('https://api.openai.com/v1/chat/completions', {
