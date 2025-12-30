@@ -44,10 +44,10 @@ Rules you must follow:
 
 Your mission is to be **accurate, safe, KB-bound, polite**, and **never hallucinate**.`;
 
-interface PineconeResult {
-  _id: string;
-  _score: number;
-  fields?: {
+interface PineconeMatch {
+  id: string;
+  score: number;
+  metadata?: {
     category?: string;
     chunk_text?: string;
     source_file?: string;
@@ -108,11 +108,9 @@ async function queryPinecone(
         "X-Pinecone-Api-Version": "unstable",
       },
       body: JSON.stringify({
-        query: {
-          vector: queryEmbedding,
-          top_k: topK,
-        },
-        fields: ["category", "chunk_text", "source_file", "text"],
+        vector: queryEmbedding,
+        top_k: topK,
+        include_metadata: true,
       }),
     },
   );
@@ -130,22 +128,22 @@ async function queryPinecone(
   const sources: Source[] = [];
   const seenSources = new Set<string>();
 
-  // Extract documents and sources from Pinecone results
-  const hits = results.result?.hits || results.hits || [];
+  // Extract documents and sources from Pinecone results (matches array with metadata)
+  const matches = results.matches || [];
 
-  for (const hit of hits as PineconeResult[]) {
+  for (const match of matches as PineconeMatch[]) {
     // Skip results below relevance threshold
-    if (hit._score < RELEVANCE_THRESHOLD) {
-      console.log(`Skipping low-relevance result: score=${hit._score.toFixed(3)} (threshold=${RELEVANCE_THRESHOLD})`);
+    if (match.score < RELEVANCE_THRESHOLD) {
+      console.log(`Skipping low-relevance result: score=${match.score.toFixed(3)} (threshold=${RELEVANCE_THRESHOLD})`);
       continue;
     }
 
-    console.log(`Including result: score=${hit._score.toFixed(3)}`);
+    console.log(`Including result: score=${match.score.toFixed(3)}`);
 
-    const fields = hit.fields || {};
-    const content = fields.chunk_text || fields.text || "";
-    const sourceFile = fields.source_file || "Unknown source";
-    const category = fields.category;
+    const metadata = match.metadata || {};
+    const content = metadata.chunk_text || metadata.text || "";
+    const sourceFile = metadata.source_file || "Unknown source";
+    const category = metadata.category;
 
     if (content) {
       documents.push(content);
@@ -159,7 +157,7 @@ async function queryPinecone(
     }
   }
 
-  console.log(`Retrieved ${documents.length} relevant documents above threshold (from ${hits.length} total hits)`);
+  console.log(`Retrieved ${documents.length} relevant documents above threshold (from ${matches.length} total matches)`);
 
   return { documents, sources };
 }
