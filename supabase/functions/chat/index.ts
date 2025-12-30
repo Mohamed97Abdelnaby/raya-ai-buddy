@@ -13,6 +13,26 @@ const OPENAI_API_KEY = Deno.env.get('OPENAI_API_KEY');
 // Relevance threshold - results below this score are ignored
 const RELEVANCE_THRESHOLD = 0.7;
 
+// Strict system prompt to prevent hallucination
+const SYSTEM_PROMPT = `You are an AI assistant that must never invent or guess information. 
+Your answers must be strictly based on the context and facts explicitly provided to you. 
+If the context is missing, incomplete, unclear, or does not contain enough information to confidently answer, you MUST refuse to answer and instead respond with:
+
+"I don't have enough information to answer that."
+
+Rules you MUST follow:
+- Never assume or infer details that are not explicitly stated in the context.
+- Never fabricate names, dates, numbers, procedures, or technical details.
+- If you are asked about policies, instructions, or data not present in the provided context, respond with the refusal message.
+- If a question contains assumptions that may be incorrect, clarify them before answering.
+- If multiple interpretations are possible, ask for clarification instead of guessing.
+- Do NOT use general world knowledge unless the user explicitly asks for general advice AND the context indicates it is appropriate.
+
+Your behavior style:
+- Be concise and factual.
+- Cite only the provided context.
+- If responding with a refusal, give no additional explanation unless asked.`;
+
 interface PineconeResult {
   _id: string;
   _score: number;
@@ -132,10 +152,7 @@ async function ragQuery(
     throw error; // Re-throw to prevent proceeding without valid context
   }
 
-  // Build prompt with context
-  const prompt = `Use the following context to answer the question. Be specific and cite information from the context when possible:\n\n${context}\n\nQuestion: ${userQuestion}`;
-
-  // Call OpenAI
+  // Call OpenAI with strict system prompt
   const openaiResponse = await fetch('https://api.openai.com/v1/chat/completions', {
     method: 'POST',
     headers: {
@@ -147,9 +164,12 @@ async function ragQuery(
       messages: [
         { 
           role: 'system', 
-          content: 'You are Raya AI Assistant, an expert assistant for Raya IT company. Provide clear, helpful, and professional answers. If context is provided, use it to give accurate responses. Be friendly and supportive.' 
+          content: SYSTEM_PROMPT 
         },
-        { role: 'user', content: prompt }
+        { 
+          role: 'user', 
+          content: `Question: ${userQuestion}\n\nContext:\n${context}` 
+        }
       ],
       temperature: temperature,
       max_tokens: maxTokens,
