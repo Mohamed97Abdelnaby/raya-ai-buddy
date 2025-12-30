@@ -60,6 +60,32 @@ interface Source {
   category?: string;
 }
 
+// Embed query using OpenAI text-embedding-3-large
+async function embedQuery(query: string): Promise<number[]> {
+  console.log("Embedding query with OpenAI text-embedding-3-large...");
+  
+  const response = await fetch("https://api.openai.com/v1/embeddings", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${OPENAI_API_KEY}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model: "text-embedding-3-large",
+      input: query,
+    }),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    console.error("OpenAI embedding failed:", response.status, errorText);
+    throw new Error(`OpenAI embedding failed: ${response.status}`);
+  }
+
+  const data = await response.json();
+  return data.data[0].embedding;
+}
+
 // Query Pinecone for relevant documents
 async function queryPinecone(
   userQuestion: string,
@@ -67,8 +93,12 @@ async function queryPinecone(
 ): Promise<{ documents: string[]; sources: Source[] }> {
   console.log("Querying Pinecone...", { userQuestion, topK });
 
+  // First embed the query
+  const queryEmbedding = await embedQuery(userQuestion);
+  console.log("Query embedded, vector length:", queryEmbedding.length);
+
   const response = await fetch(
-    "https://developer-quickstart-py-pcmqk4n.svc.aped-4627-b74a.pinecone.io/records/namespaces/example-namespace/search",
+    "https://rag-pcmqk4n.svc.aped-4627-b74a.pinecone.io/records/namespaces/example-namespace/search",
     {
       method: "POST",
       headers: {
@@ -79,10 +109,10 @@ async function queryPinecone(
       },
       body: JSON.stringify({
         query: {
-          inputs: { text: userQuestion },
+          vector: queryEmbedding,
           top_k: topK,
         },
-        fields: ["category", "chunk_text", "source_file", "text", ""],
+        fields: ["category", "chunk_text", "source_file", "text"],
       }),
     },
   );
