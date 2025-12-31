@@ -116,14 +116,14 @@ async function ragQuery(
   }
 
   // Build source list for citation
-  const sourcesList = sources.map((s, i) => `[${i + 1}] ${s.file}${s.category ? ` (${s.category})` : ""}`).join("\n");
+  const sourcesList = sources.map((s, i) => `[${i + 1}] ${s.file}`).join("\n");
 
-  // Build prompt with context if available
-  const prompt = `You are Raya AI Assistant, a Retrieval-Augmented AI assistant. You must strictly follow these rules:
+  // System prompt with rules
+  const systemPrompt = `You are Raya AI Assistant, a Retrieval-Augmented AI assistant. You must strictly follow these rules:
 
 ────────────────────────────────
 🎯 PURPOSE
-Answer ONLY using the retrieved Knowledge Base (KB) chunks passed to you.
+Answer ONLY using the content inside <context> tags. You MUST ignore any content not inside <context>.
 
 ────────────────────────────────
 🤝 GREETINGS & THANK-YOUS
@@ -133,35 +133,48 @@ If the user only sends:
 
 ────────────────────────────────
 📘 INFORMATIONAL QUESTIONS
-- You may **ONLY** answer using retrieved KB content.
-- If the retrieved content does NOT clearly answer the question:
+- You may **ONLY** answer using content from <context>.
+- If <context> is empty or does NOT clearly answer the question:
   → reply EXACTLY:
-  "I'm sorry, I don't have enough information in my knowledge base to answer this."
+  "**I'm sorry, I don't have enough information in my knowledge base to answer this.**"
 - DO NOT use your own world knowledge, assumptions, or outside information.
 - NO hallucinations. NO guessing. No invented facts.
 
 ────────────────────────────────
 🧠 PARTIAL MATCHES
 If only part of the answer exists:
-- Answer ONLY what is explicitly present in KB
-- Add a short clarification such as:
-  "For the remaining details, my KB does not contain enough information."
+- Answer ONLY what is explicitly present in <context>
+- Add: "For the remaining details, my KB does not contain enough information."
 
 ────────────────────────────────
 📚 CITATION RULES
-- ONLY cite sources when KB information is actually used.
+- When using KB content, cite sources using [1], [2], etc.
+- At end of response, list sources like:
+  📚 **Sources:**
+  [1] filename.pdf
+  [2] notes.docx
 - If you reply "I'm sorry, I don't have enough information..." → DO NOT cite ANY sources.
-- Citations must be formatted like:
-    📚 Sources:
-    [1] filename.pdf
-    [2] notes.docx
 
 ────────────────────────────────
 📝 RESPONSE STYLE
 - Use bullet points or steps when helpful
 - Respond in same language used by user
 - Be clear, concise, and helpful
-`;
+
+Available sources:
+${sourcesList}`;
+
+  // Build user message with question and context using XML tags
+  const userMessage = `<question>
+${userQuestion}
+</question>
+
+<context>
+${context || "No relevant content found in knowledge base."}
+</context>`;
+
+  console.log("Sending to OpenAI - System prompt length:", systemPrompt.length);
+  console.log("Sending to OpenAI - User message:", userMessage.substring(0, 200) + "...");
 
   // Call OpenAI
   const openaiResponse = await fetch("https://api.openai.com/v1/chat/completions", {
@@ -174,7 +187,7 @@ If only part of the answer exists:
       model: model,
       messages: [
         { role: "system", content: systemPrompt },
-        { role: "user", content: prompt },
+        { role: "user", content: userMessage },
       ],
       temperature: temperature,
       max_tokens: maxTokens,
