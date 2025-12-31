@@ -10,8 +10,6 @@ const PINECONE_URL = Deno.env.get("PINECONE_URL");
 const PINECONE_API_KEY = Deno.env.get("PINECONE_API_KEY");
 const OPENAI_API_KEY = Deno.env.get("OPENAI_API_KEY");
 
-// Relevance threshold - results below this score are ignored
-const RELEVANCE_THRESHOLD = 0.4;
 
 // RAG-bound system prompt
 const SYSTEM_PROMPT = `You are a Retrieval-Augmented AI assistant. You must **only** answer questions using the content retrieved from the Knowledge Base (KB). 
@@ -133,12 +131,6 @@ async function queryPinecone(
   const matches = results.matches || [];
 
   for (const match of matches as PineconeMatch[]) {
-    // Skip results below relevance threshold
-    if (match.score < RELEVANCE_THRESHOLD) {
-      console.log(`Skipping low-relevance result: score=${match.score.toFixed(3)} (threshold=${RELEVANCE_THRESHOLD})`);
-      continue;
-    }
-
     console.log(`Including result: score=${match.score.toFixed(3)}`);
 
     const metadata = match.metadata || {};
@@ -158,7 +150,7 @@ async function queryPinecone(
     }
   }
 
-  console.log(`Retrieved ${documents.length} relevant documents above threshold (from ${matches.length} total matches)`);
+  console.log(`Retrieved ${documents.length} documents from ${matches.length} matches`);
 
   return { documents, sources };
 }
