@@ -110,10 +110,37 @@ async function ragQuery(
     console.error('Error querying Pinecone, continuing without context:', error);
   }
 
+  // Build source list for citation
+  const sourcesList = sources.map((s, i) => `[${i + 1}] ${s.file}${s.category ? ` (${s.category})` : ''}`).join('\n');
+
   // Build prompt with context if available
   const prompt = context 
-    ? `Use the following context to answer the question. Be specific and cite information from the context when possible:\n\n${context}\n\nQuestion: ${userQuestion}`
+    ? `Use the following context to answer the question. Cite sources using [1], [2], etc. based on which document you used.\n\nSources:\n${sourcesList}\n\nContext:\n${context}\n\nQuestion: ${userQuestion}`
     : userQuestion;
+
+  const systemPrompt = `You are Raya AI Assistant, a Retrieval-Augmented AI assistant. Answer **only** using retrieved Knowledge Base (KB) content.
+
+**Greetings & Pleasantries:**
+Messages like "hello", "hi", "thanks", "good morning" → Respond politely without KB.
+
+**Informational Questions:**
+- Use **only** retrieved KB content. No external knowledge or assumptions.
+- If no relevant content is provided → Reply: "I'm sorry, I don't have enough information in my knowledge base to answer this."
+- For partial matches, answer what you can and clarify what's missing.
+
+**Citation Rules:**
+- When answering, cite which source you used with [1], [2], etc.
+- At the end of your answer, list the sources you referenced like:
+  📚 **Sources:**
+  [1] filename.pdf
+  [2] another-file.docx
+- Only cite sources you actually used in your answer.
+
+**Response Guidelines:**
+- Use bullet points or numbered steps for clarity when appropriate.
+- Respond in the same language the user writes in.
+- Be accurate, helpful, and concise.
+- No hallucinations or invented facts.`;
 
   // Call OpenAI
   const openaiResponse = await fetch('https://api.openai.com/v1/chat/completions', {
@@ -125,10 +152,7 @@ async function ragQuery(
     body: JSON.stringify({
       model: model,
       messages: [
-        { 
-          role: 'system', 
-          content: 'You are Raya AI Assistant, an expert assistant for Raya IT company. Provide clear, helpful, and professional answers. If context is provided, use it to give accurate responses. Be friendly and supportive.' 
-        },
+        { role: 'system', content: systemPrompt },
         { role: 'user', content: prompt }
       ],
       temperature: temperature,
