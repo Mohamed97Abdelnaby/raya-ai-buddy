@@ -16,15 +16,26 @@ export const useChat = () => {
       timestamp: new Date(),
     };
 
-    setMessages((prev) => [...prev, userMessage]);
+    // Get current messages for conversation history
+    const currentMessages = [...messages, userMessage];
+    setMessages(currentMessages);
     setIsLoading(true);
+
+    // Build conversation history for context (last 10 messages max)
+    const conversationHistory = currentMessages
+      .slice(-10)
+      .map(msg => ({
+        role: msg.role as "user" | "assistant",
+        content: msg.content
+      }));
 
     try {
       const { data, error } = await supabase.functions.invoke('chat', {
         body: { 
           message: content,
+          conversationHistory,
           topK: 5,
-          model: "gpt-3.5-turbo",
+          model: "gpt-4o-mini",
           temperature: 0.2,
           maxTokens: 500
         }
