@@ -92,11 +92,17 @@ async function queryPinecone(
   return { documents, sources };
 }
 
+interface ConversationMessage {
+  role: "user" | "assistant";
+  content: string;
+}
+
 // RAG Query function
 async function ragQuery(
   userQuestion: string,
+  conversationHistory: ConversationMessage[] = [],
   topK: number = 5,
-  model: string = "gpt-3.5-turbo",
+  model: string = "gpt-4o-mini",
   temperature: number = 0.2,
   maxTokens: number = 500,
 ): Promise<{ answer: string; sources: Source[] }> {
@@ -171,6 +177,12 @@ If the context only answers part of the question:
 - Respond in the same language the user used
 - Be concise, friendly, and accurate
 
+────────────────────────────
+💬 CONVERSATION CONTEXT
+- You have access to the previous conversation history.
+- Use it to understand follow-up questions and maintain context.
+- If the user refers to "it", "that", "they", etc., use conversation history to understand what they mean.
+
 If you are unsure, always choose to say:
 "I'm sorry, I don't have enough information in my knowledge base to answer this."
 
@@ -188,6 +200,21 @@ ${context || "No relevant content found in knowledge base."}
 
   console.log("Sending to OpenAI - System prompt length:", systemPrompt.length);
   console.log("Sending to OpenAI - User message:", userMessage.substring(0, 200) + "...");
+  console.log("Conversation history length:", conversationHistory.length);
+
+  // Build messages array with conversation history
+  const messages: { role: string; content: string }[] = [
+    { role: "system", content: systemPrompt },
+  ];
+
+  // Add previous conversation history (exclude the current question which is already in userMessage)
+  const previousMessages = conversationHistory.slice(0, -1);
+  for (const msg of previousMessages) {
+    messages.push({ role: msg.role, content: msg.content });
+  }
+
+  // Add current user message with context
+  messages.push({ role: "user", content: userMessage });
 
   // Call OpenAI
   const openaiResponse = await fetch("https://api.openai.com/v1/chat/completions", {
@@ -198,10 +225,7 @@ ${context || "No relevant content found in knowledge base."}
     },
     body: JSON.stringify({
       model: model,
-      messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: userMessage },
-      ],
+      messages: messages,
       temperature: temperature,
       max_tokens: maxTokens,
     }),
@@ -229,7 +253,14 @@ serve(async (req) => {
   }
 
   try {
-    const { message, topK = 5, model = "gpt-3.5-turbo", temperature = 0.2, maxTokens = 500 } = await req.json();
+    const { 
+      message, 
+      conversationHistory = [], 
+      topK = 5, 
+      model = "gpt-4o-mini", 
+      temperature = 0.2, 
+      maxTokens = 500 
+    } = await req.json();
 
     if (!message) {
       return new Response(JSON.stringify({ error: "Message is required" }), {
@@ -255,8 +286,9 @@ serve(async (req) => {
     }
 
     console.log("Processing message:", message);
+    console.log("Conversation history received:", conversationHistory.length, "messages");
 
-    const { answer, sources } = await ragQuery(message, topK, model, temperature, maxTokens);
+    const { answer, sources } = await ragQuery(message, conversationHistory, topK, model, temperature, maxTokens);
 
     return new Response(JSON.stringify({ response: answer, sources }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
