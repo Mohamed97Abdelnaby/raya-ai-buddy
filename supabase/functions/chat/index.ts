@@ -13,7 +13,8 @@ const FIRECRAWL_API_KEY = Deno.env.get("FIRECRAWL_API_KEY");
 
 const INDEX_HOST = "developer-quickstart-py-pcmqk4n.svc.aped-4627-b74a.pinecone.io";
 const NAMESPACE = "example-namespace";
-const MAX_CHUNK_BYTES = 40960;
+// Pinecone has 40960 byte metadata limit - leave room for other fields
+const MAX_CHUNK_BYTES = 38000;
 
 interface PineconeResult {
   _id: string;
@@ -157,11 +158,18 @@ async function uploadToPinecone(
   
   const domainName = extractDomainName(sourceUrl);
   const ndjsonLines: string[] = [];
+  const encoder = new TextEncoder();
   
   for (let i = 0; i < chunks.length; i++) {
+    // Truncate chunk if still too large (safety net)
+    let chunkText = chunks[i];
+    while (encoder.encode(chunkText).length > MAX_CHUNK_BYTES) {
+      chunkText = chunkText.substring(0, chunkText.length - 500);
+    }
+    
     const record = {
       _id: generateUUID(),
-      text: chunks[i],
+      text: chunkText,
       category: "web_page",
       source_file: `${title} (${domainName})`,
       source_url: sourceUrl,
