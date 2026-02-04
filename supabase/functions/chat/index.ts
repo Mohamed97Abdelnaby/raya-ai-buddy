@@ -45,6 +45,14 @@ function extractUrls(text: string): string[] {
   return [...new Set(matches)];
 }
 
+// Check if message is primarily just URLs (no real question)
+function isUrlOnlyMessage(text: string): boolean {
+  const urlRegex = /https?:\/\/[^\s<>"{}|\\^`[\]]+/gi;
+  const withoutUrls = text.replace(urlRegex, "").trim();
+  // If removing URLs leaves very little text, it's URL-only
+  return withoutUrls.length < 10;
+}
+
 // Generate a UUID
 function generateUUID(): string {
   return crypto.randomUUID();
@@ -516,7 +524,117 @@ serve(async (req) => {
       console.log("URLs found but FIRECRAWL_API_KEY not configured, skipping indexing");
     }
 
-    // Step 3: Perform streaming RAG query
+    // Step 3: Check if this is a URL-only message (just adding to KB)
+    const urlOnly = isUrlOnlyMessage(message) && indexedUrls.length > 0;
+    
+    if (urlOnly) {
+      console.log("URL-only message detected, generating summary response");
+      
+      // Query Pinecone for the content we just indexed to get a summary
+      const { documents } = await queryPinecone(indexedUrls[0].url, 3);
+      const contentPreview = documents.slice(0, 2).join("\n\n").substring(0, 1500);
+      
+      // Generate a summary using OpenAI
+      const summaryResponse = await fetch("https://api.openai.com/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${OPENAI_API_KEY}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model: model,
+          messages: [
+            { 
+              role: "system", 
+              content: "You are a helpful assistant. Provide a brief, friendly summary of the content in 2-3 sentences. Respond in the same language the content is in." 
+            },
+            { 
+              role: "user", 
+              content: `Summarize this content:\n\n${contentPreview}` 
+            }
+          ],
+          temperature: 0.3,
+          max_tokens: 200,
+          stream: true,
+        }),
+      });
+
+      if (!summaryResponse.ok) {
+        throw new Error(`OpenAI API error: ${summaryResponse.status}`);
+      }
+
+      const encoder = new TextEncoder();
+      const decoder = new TextDecoder();
+      
+      // Build the prefix message
+      const indexStatus = indexedUrls.map(u => 
+        u.alreadyIndexed 
+          ? `📚 **Already in KB:** ${u.title}` 
+          : `✅ **Added to KB:** ${u.title}`
+      ).join("\n");
+      
+      const prefixMessage = `${indexStatus}\n\n**Summary:**\n`;
+      const suffixMessage = "\n\n---\n🎯 I'm ready to answer any questions about this content!";
+      
+      let fullContent = "";
+      
+      const transformStream = new TransformStream({
+        start(controller) {
+          // Send prefix
+          const prefixEvent = `data: ${JSON.stringify({ 
+            choices: [{ delta: { content: prefixMessage } }] 
+          })}\n\n`;
+          controller.enqueue(encoder.encode(prefixEvent));
+        },
+        transform(chunk, controller) {
+          const text = decoder.decode(chunk, { stream: true });
+          const lines = text.split("\n");
+          
+          for (const line of lines) {
+            if (line.startsWith("data: ") && line !== "data: [DONE]") {
+              try {
+                const jsonStr = line.slice(6);
+                const parsed = JSON.parse(jsonStr);
+                const content = parsed.choices?.[0]?.delta?.content || "";
+                fullContent += content;
+              } catch {
+                // Ignore parse errors
+              }
+            }
+          }
+          
+          controller.enqueue(chunk);
+        },
+        flush(controller) {
+          // Add suffix
+          const suffixEvent = `data: ${JSON.stringify({ 
+            choices: [{ delta: { content: suffixMessage } }] 
+          })}\n\n`;
+          controller.enqueue(encoder.encode(suffixEvent));
+          
+          // Send metadata
+          const metaEvent = `data: ${JSON.stringify({ 
+            meta: { sources: [], indexedUrls } 
+          })}\n\n`;
+          controller.enqueue(encoder.encode(metaEvent));
+          
+          controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+        }
+      });
+
+      const transformedStream = summaryResponse.body!.pipeThrough(transformStream);
+
+      return new Response(transformedStream, {
+        headers: { 
+          ...corsHeaders, 
+          "Content-Type": "text/event-stream",
+          "Cache-Control": "no-cache",
+          "Connection": "keep-alive",
+        },
+      });
+    }
+
+    // Step 4: Perform streaming RAG query for normal questions
     const { stream: openaiStream, sources } = await streamRagQuery(
       message, conversationHistory, topK, model, temperature, maxTokens
     );
