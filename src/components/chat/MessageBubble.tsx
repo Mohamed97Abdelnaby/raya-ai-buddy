@@ -35,7 +35,24 @@ const MessageBubble = ({
         </p>
         
         {/* Sources Section */}
-        {hasSources}
+        {hasSources && (
+          <div className="mt-3 pt-2 border-t border-border/50">
+            <div className="flex items-center gap-1.5 text-xs text-muted-foreground mb-1.5">
+              <FileText className="w-3 h-3" />
+              <span>Sources:</span>
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {message.sources!.map((source, index) => (
+                <span
+                  key={index}
+                  className="inline-flex items-center px-2 py-0.5 rounded-md bg-muted/50 text-xs text-muted-foreground"
+                >
+                  {source.file}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
         
         <p className={cn("text-xs mt-2", isUser ? "text-primary-foreground/70" : "text-muted-foreground")}>
           {message.timestamp.toLocaleTimeString([], {
