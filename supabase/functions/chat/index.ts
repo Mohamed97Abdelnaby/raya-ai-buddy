@@ -187,8 +187,69 @@ async function uploadToPinecone(
   return { success: true, recordCount: chunks.length };
 }
 
+// Check if URL already exists in Pinecone
+async function checkUrlExists(url: string): Promise<{ exists: boolean; documentCount: number }> {
+  console.log("Checking if URL exists in Pinecone:", url);
+  
+  try {
+    // Search for documents with this source_url
+    const response = await fetch(
+      `https://${INDEX_HOST}/records/namespaces/${NAMESPACE}/search`,
+      {
+        method: "POST",
+        headers: {
+          Accept: "application/json",
+          "Content-Type": "application/json",
+          "Api-Key": PINECONE_API_KEY!,
+          "X-Pinecone-Api-Version": "unstable",
+        },
+        body: JSON.stringify({
+          query: {
+            inputs: { text: url },
+            top_k: 10,
+          },
+          fields: ["source_url"],
+        }),
+      }
+    );
+
+    if (!response.ok) {
+      console.error("Pinecone check failed:", response.status);
+      return { exists: false, documentCount: 0 };
+    }
+
+    const results = await response.json();
+    const hits = results.result?.hits || results.hits || [];
+    
+    // Count how many documents match this exact URL
+    let matchCount = 0;
+    for (const hit of hits) {
+      const sourceUrl = hit.fields?.source_url;
+      if (sourceUrl === url) {
+        matchCount++;
+      }
+    }
+    
+    console.log(`Found ${matchCount} existing documents for URL: ${url}`);
+    return { exists: matchCount > 0, documentCount: matchCount };
+  } catch (error) {
+    console.error("Error checking URL existence:", error);
+    return { exists: false, documentCount: 0 };
+  }
+}
+
 // Process and index a URL
-async function indexUrl(url: string): Promise<{ success: boolean; title: string; chunks: number }> {
+async function indexUrl(url: string): Promise<{ success: boolean; title: string; chunks: number; alreadyIndexed: boolean }> {
+  // First check if URL already exists in knowledge base
+  const { exists, documentCount } = await checkUrlExists(url);
+  
+  if (exists) {
+    console.log(`URL already indexed with ${documentCount} chunks, skipping scrape`);
+    const domainName = extractDomainName(url);
+    return { success: true, title: domainName, chunks: documentCount, alreadyIndexed: true };
+  }
+  
+  // URL not found, proceed with scraping and indexing
   const { content, title } = await scrapeUrl(url);
   
   if (!content || content.length === 0) {
@@ -203,7 +264,7 @@ async function indexUrl(url: string): Promise<{ success: boolean; title: string;
   
   await uploadToPinecone(chunks, url, title);
   
-  return { success: true, title, chunks: chunks.length };
+  return { success: true, title, chunks: chunks.length, alreadyIndexed: false };
 }
 
 // Query Pinecone for relevant documents
@@ -467,20 +528,25 @@ serve(async (req) => {
 
     // Step 1: Detect URLs in the message
     const urls = extractUrls(message);
-    const indexedUrls: { url: string; title: string; chunks: number }[] = [];
+    const indexedUrls: { url: string; title: string; chunks: number; alreadyIndexed: boolean }[] = [];
 
-    // Step 2: If URLs found and Firecrawl is configured, index them
+    // Step 2: If URLs found and Firecrawl is configured, check and index them
     if (urls.length > 0 && FIRECRAWL_API_KEY) {
       console.log(`Found ${urls.length} URL(s) in message:`, urls);
       
       for (const url of urls) {
         try {
-          console.log(`Indexing URL: ${url}`);
+          console.log(`Processing URL: ${url}`);
           const result = await indexUrl(url);
-          indexedUrls.push({ url, title: result.title, chunks: result.chunks });
-          console.log(`Successfully indexed ${result.chunks} chunks from: ${result.title}`);
+          indexedUrls.push({ url, title: result.title, chunks: result.chunks, alreadyIndexed: result.alreadyIndexed });
+          
+          if (result.alreadyIndexed) {
+            console.log(`URL already in knowledge base with ${result.chunks} chunks: ${result.title}`);
+          } else {
+            console.log(`Newly indexed ${result.chunks} chunks from: ${result.title}`);
+          }
         } catch (error) {
-          console.error(`Failed to index URL ${url}:`, error);
+          console.error(`Failed to process URL ${url}:`, error);
           // Continue with other URLs even if one fails
         }
       }
@@ -495,7 +561,9 @@ serve(async (req) => {
     let responseText = answer;
     if (indexedUrls.length > 0) {
       const indexInfo = indexedUrls
-        .map(u => `📎 Indexed: ${u.title} (${u.chunks} chunks)`)
+        .map(u => u.alreadyIndexed 
+          ? `📚 Found in KB: ${u.title} (${u.chunks} chunks)` 
+          : `📎 Indexed: ${u.title} (${u.chunks} chunks)`)
         .join("\n");
       responseText = `${indexInfo}\n\n${answer}`;
     }
