@@ -153,6 +153,7 @@ async function uploadToPinecone(
   for (let i = 0; i < chunks.length; i++) {
     const record = {
       _id: generateUUID(),
+      text: chunks[i],
       chunk_text: chunks[i],
       category: "web_page",
       source_file: `${title} (${domainName})`,
