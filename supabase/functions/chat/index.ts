@@ -42,7 +42,7 @@ interface ConversationMessage {
 function extractUrls(text: string): string[] {
   const urlRegex = /https?:\/\/[^\s<>"{}|\\^`[\]]+/gi;
   const matches = text.match(urlRegex) || [];
-  return [...new Set(matches)]; // Remove duplicates
+  return [...new Set(matches)];
 }
 
 // Generate a UUID
@@ -151,8 +151,6 @@ async function uploadToPinecone(
   const ndjsonLines: string[] = [];
   
   for (let i = 0; i < chunks.length; i++) {
-    // Use only 'text' field for embedding - Pinecone uses this for vectorization
-    // Store a truncated version in chunk_text for retrieval to stay under 40KB metadata limit
     const record = {
       _id: generateUUID(),
       text: chunks[i],
@@ -192,7 +190,6 @@ async function checkUrlExists(url: string): Promise<{ exists: boolean; documentC
   console.log("Checking if URL exists in Pinecone:", url);
   
   try {
-    // Search for documents with this source_url
     const response = await fetch(
       `https://${INDEX_HOST}/records/namespaces/${NAMESPACE}/search`,
       {
@@ -221,7 +218,6 @@ async function checkUrlExists(url: string): Promise<{ exists: boolean; documentC
     const results = await response.json();
     const hits = results.result?.hits || results.hits || [];
     
-    // Count how many documents match this exact URL
     let matchCount = 0;
     for (const hit of hits) {
       const sourceUrl = hit.fields?.source_url;
@@ -240,7 +236,6 @@ async function checkUrlExists(url: string): Promise<{ exists: boolean; documentC
 
 // Process and index a URL
 async function indexUrl(url: string): Promise<{ success: boolean; title: string; chunks: number; alreadyIndexed: boolean }> {
-  // First check if URL already exists in knowledge base
   const { exists, documentCount } = await checkUrlExists(url);
   
   if (exists) {
@@ -249,7 +244,6 @@ async function indexUrl(url: string): Promise<{ success: boolean; title: string;
     return { success: true, title: domainName, chunks: documentCount, alreadyIndexed: true };
   }
   
-  // URL not found, proceed with scraping and indexing
   const { content, title } = await scrapeUrl(url);
   
   if (!content || content.length === 0) {
@@ -307,12 +301,10 @@ async function queryPinecone(
   const sources: Source[] = [];
   const seenSources = new Set<string>();
 
-  // Extract documents and sources from Pinecone results
   const hits = results.result?.hits || results.hits || [];
 
   for (const hit of hits as PineconeResult[]) {
     const fields = hit.fields || {};
-    // Prioritize text field (new format) over chunk_text (legacy format)
     const content = fields.text || fields.chunk_text || "";
     const sourceFile = fields.source_file || "Unknown source";
     const category = fields.category;
@@ -323,7 +315,6 @@ async function queryPinecone(
       console.log(`Document from ${sourceFile}: ${content.substring(0, 100)}...`);
     }
 
-    // Add unique sources
     if (!seenSources.has(sourceFile)) {
       seenSources.add(sourceFile);
       sources.push({ file: sourceFile, category, url: sourceUrl });
@@ -335,35 +326,9 @@ async function queryPinecone(
   return { documents, sources };
 }
 
-// RAG Query function
-async function ragQuery(
-  userQuestion: string,
-  conversationHistory: ConversationMessage[] = [],
-  topK: number = 5,
-  model: string = "gpt-4o-mini",
-  temperature: number = 0.2,
-  maxTokens: number = 500,
-): Promise<{ answer: string; sources: Source[] }> {
-  let context = "";
-  let sources: Source[] = [];
-
-  // Try to get context from Pinecone
-  try {
-    const pineconeResults = await queryPinecone(userQuestion, topK);
-    context = pineconeResults.documents.join("\n\n");
-    sources = pineconeResults.sources;
-
-    console.log("Context length:", context.length);
-    console.log("Sources:", JSON.stringify(sources));
-  } catch (error) {
-    console.error("Error querying Pinecone, continuing without context:", error);
-  }
-
-  // Build source list for citation
-  const sourcesList = sources.map((s, i) => `[${i + 1}] ${s.file}`).join("\n");
-
-  // System prompt with rules
-  const systemPrompt = `You are Raya AI Assistant, a Retrieval-Augmented AI system. You must strictly follow these rules:
+// Build system prompt
+function buildSystemPrompt(sourcesList: string): string {
+  return `You are Raya AI Assistant, a Retrieval-Augmented AI system. You must strictly follow these rules:
 
 ────────────────────────────
 🎯 CORE BEHAVIOR
@@ -392,28 +357,11 @@ Before answering:
 (no explanations, no sources, nothing else)
 
 ────────────────────────────
-🧠 PARTIAL ANSWERS
-If the context only answers part of the question:
-- Answer ONLY the part that exists
-- Then add:
-"For the remaining details, my KB does not contain enough information."
-
-────────────────────────────
-📚 CITATION RULES
-- If you use information from <context>, cite the source(s) like this:
-
-  📚 Sources:
-  [1] filename.pdf
-  [2] notes.docx
-
-- DO NOT cite sources if the answer was a greeting or if you responded with:
-  "I'm sorry, I don't have enough information in my knowledge base to answer this."
-
-────────────────────────────
 📝 RESPONSE STYLE
 - Use bullets or steps when helpful
 - Respond in the same language the user used
 - Be concise, friendly, and accurate
+- Do NOT include source citations in your response - they will be added automatically
 
 ────────────────────────────
 💬 CONVERSATION CONTEXT
@@ -424,10 +372,36 @@ If the context only answers part of the question:
 If you are unsure, always choose to say:
 "I'm sorry, I don't have enough information in my knowledge base to answer this."
 
-Available sources:
+Available sources for reference (do not cite them yourself):
 ${sourcesList}`;
+}
 
-  // Build user message with question and context using XML tags
+// Streaming RAG Query function
+async function streamRagQuery(
+  userQuestion: string,
+  conversationHistory: ConversationMessage[] = [],
+  topK: number = 5,
+  model: string = "gpt-4o-mini",
+  temperature: number = 0.2,
+  maxTokens: number = 500,
+): Promise<{ stream: ReadableStream; sources: Source[] }> {
+  let context = "";
+  let sources: Source[] = [];
+
+  try {
+    const pineconeResults = await queryPinecone(userQuestion, topK);
+    context = pineconeResults.documents.join("\n\n");
+    sources = pineconeResults.sources;
+
+    console.log("Context length:", context.length);
+    console.log("Sources:", JSON.stringify(sources));
+  } catch (error) {
+    console.error("Error querying Pinecone, continuing without context:", error);
+  }
+
+  const sourcesList = sources.map((s, i) => `[${i + 1}] ${s.file}`).join("\n");
+  const systemPrompt = buildSystemPrompt(sourcesList);
+
   const userMessage = `<question>
 ${userQuestion}
 </question>
@@ -437,24 +411,19 @@ ${context || "No relevant content found in knowledge base."}
 </context>`;
 
   console.log("Sending to OpenAI - System prompt length:", systemPrompt.length);
-  console.log("Sending to OpenAI - User message:", userMessage.substring(0, 200) + "...");
   console.log("Conversation history length:", conversationHistory.length);
 
-  // Build messages array with conversation history
   const messages: { role: string; content: string }[] = [
     { role: "system", content: systemPrompt },
   ];
 
-  // Add previous conversation history (exclude the current question which is already in userMessage)
   const previousMessages = conversationHistory.slice(0, -1);
   for (const msg of previousMessages) {
     messages.push({ role: msg.role, content: msg.content });
   }
 
-  // Add current user message with context
   messages.push({ role: "user", content: userMessage });
 
-  // Call OpenAI
   const openaiResponse = await fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
     headers: {
@@ -466,6 +435,7 @@ ${context || "No relevant content found in knowledge base."}
       messages: messages,
       temperature: temperature,
       max_tokens: maxTokens,
+      stream: true,
     }),
   });
 
@@ -475,17 +445,10 @@ ${context || "No relevant content found in knowledge base."}
     throw new Error(`OpenAI API error: ${openaiResponse.status}`);
   }
 
-  const data = await openaiResponse.json();
-  const answer = data.choices[0].message.content;
-
-  console.log("Generated answer:", answer);
-  console.log("Returning sources:", JSON.stringify(sources));
-
-  return { answer, sources };
+  return { stream: openaiResponse.body!, sources };
 }
 
 serve(async (req) => {
-  // Handle CORS preflight requests
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
   }
@@ -547,29 +510,102 @@ serve(async (req) => {
           }
         } catch (error) {
           console.error(`Failed to process URL ${url}:`, error);
-          // Continue with other URLs even if one fails
         }
       }
     } else if (urls.length > 0 && !FIRECRAWL_API_KEY) {
       console.log("URLs found but FIRECRAWL_API_KEY not configured, skipping indexing");
     }
 
-    // Step 3: Perform RAG query (will now include newly indexed content)
-    const { answer, sources } = await ragQuery(message, conversationHistory, topK, model, temperature, maxTokens);
+    // Step 3: Perform streaming RAG query
+    const { stream: openaiStream, sources } = await streamRagQuery(
+      message, conversationHistory, topK, model, temperature, maxTokens
+    );
 
-    // Build response with indexing info if URLs were processed
-    let responseText = answer;
+    // Build prefix for indexed URLs info
+    let urlInfoPrefix = "";
     if (indexedUrls.length > 0) {
-      const indexInfo = indexedUrls
+      urlInfoPrefix = indexedUrls
         .map(u => u.alreadyIndexed 
           ? `📚 Found in KB: ${u.title} (${u.chunks} chunks)` 
           : `📎 Indexed: ${u.title} (${u.chunks} chunks)`)
-        .join("\n");
-      responseText = `${indexInfo}\n\n${answer}`;
+        .join("\n") + "\n\n";
     }
 
-    return new Response(JSON.stringify({ response: responseText, sources, indexedUrls }), {
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    // Build sources suffix
+    let sourcesSuffix = "";
+    if (sources.length > 0) {
+      sourcesSuffix = "\n\n📚 **Sources:**\n" + sources
+        .map((s, i) => s.url ? `[${i + 1}] [${s.file}](${s.url})` : `[${i + 1}] ${s.file}`)
+        .join("\n");
+    }
+
+    // Create a TransformStream to wrap the OpenAI stream
+    const encoder = new TextEncoder();
+    const decoder = new TextDecoder();
+    
+    let sentPrefix = false;
+    let fullContent = "";
+
+    const transformStream = new TransformStream({
+      start(controller) {
+        // Send URL info prefix as first SSE event if present
+        if (urlInfoPrefix) {
+          const prefixEvent = `data: ${JSON.stringify({ 
+            choices: [{ delta: { content: urlInfoPrefix } }] 
+          })}\n\n`;
+          controller.enqueue(encoder.encode(prefixEvent));
+          sentPrefix = true;
+        }
+      },
+      transform(chunk, controller) {
+        const text = decoder.decode(chunk, { stream: true });
+        const lines = text.split("\n");
+        
+        for (const line of lines) {
+          if (line.startsWith("data: ") && line !== "data: [DONE]") {
+            try {
+              const jsonStr = line.slice(6);
+              const parsed = JSON.parse(jsonStr);
+              const content = parsed.choices?.[0]?.delta?.content || "";
+              fullContent += content;
+            } catch {
+              // Ignore parse errors
+            }
+          }
+        }
+        
+        // Pass through the original chunk
+        controller.enqueue(chunk);
+      },
+      flush(controller) {
+        // After streaming is done, append sources if we had content
+        if (sources.length > 0 && fullContent.trim() && 
+            !fullContent.includes("I'm sorry, I don't have enough information")) {
+          const sourcesEvent = `data: ${JSON.stringify({ 
+            choices: [{ delta: { content: sourcesSuffix } }] 
+          })}\n\n`;
+          controller.enqueue(encoder.encode(sourcesEvent));
+        }
+        
+        // Send metadata event with sources info for the client
+        const metaEvent = `data: ${JSON.stringify({ 
+          meta: { sources, indexedUrls } 
+        })}\n\n`;
+        controller.enqueue(encoder.encode(metaEvent));
+        
+        controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+      }
+    });
+
+    const transformedStream = openaiStream.pipeThrough(transformStream);
+
+    return new Response(transformedStream, {
+      headers: { 
+        ...corsHeaders, 
+        "Content-Type": "text/event-stream",
+        "Cache-Control": "no-cache",
+        "Connection": "keep-alive",
+      },
     });
   } catch (error) {
     console.error("Error in chat function:", error);
