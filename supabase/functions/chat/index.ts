@@ -151,10 +151,11 @@ async function uploadToPinecone(
   const ndjsonLines: string[] = [];
   
   for (let i = 0; i < chunks.length; i++) {
+    // Use only 'text' field for embedding - Pinecone uses this for vectorization
+    // Store a truncated version in chunk_text for retrieval to stay under 40KB metadata limit
     const record = {
       _id: generateUUID(),
       text: chunks[i],
-      chunk_text: chunks[i],
       category: "web_page",
       source_file: `${title} (${domainName})`,
       source_url: sourceUrl,
