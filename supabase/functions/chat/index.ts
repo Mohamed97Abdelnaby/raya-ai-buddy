@@ -251,7 +251,8 @@ async function queryPinecone(
 
   for (const hit of hits as PineconeResult[]) {
     const fields = hit.fields || {};
-    const content = fields.chunk_text || fields.text || "";
+    // Prioritize text field (new format) over chunk_text (legacy format)
+    const content = fields.text || fields.chunk_text || "";
     const sourceFile = fields.source_file || "Unknown source";
     const category = fields.category;
     const sourceUrl = fields.source_url;
