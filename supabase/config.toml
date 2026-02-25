@@ -8,3 +8,6 @@ verify_jwt = false
 
 [functions.index-url]
 verify_jwt = false
+
+[functions.index-document]
+verify_jwt = false
