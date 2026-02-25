@@ -377,7 +377,13 @@ Before answering:
 - Use bullets or steps when helpful
 - **CRITICAL: ALWAYS respond in the SAME LANGUAGE the user wrote their message in.** If user writes in Arabic, respond in Arabic. If user writes in English, respond in English. If user writes in French, respond in French. Match their language exactly.
 - Be concise, friendly, and accurate
-- Do NOT include source citations in your response - they will be added automatically
+- You MUST always cite your sources at the end of your response when answering informational questions.
+- Format sources as a numbered list at the end, e.g.:
+  📚 Sources:
+  1. [Source Name]
+  2. [Source Name]
+- Only cite sources that you actually used to answer the question.
+- Do NOT add sources for greetings or when you don't have enough information.
 
 ────────────────────────────
 💬 CONVERSATION CONTEXT
